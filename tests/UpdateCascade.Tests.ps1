@@ -172,3 +172,79 @@ Describe 'UpdateCascade CLI Invocation Verification' {
         $proc.ExitCode | Should -Be 0
     }
 }
+
+Describe 'UpdateCascade WPF GUI & XAML Contract' {
+    BeforeAll {
+        Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        $startMarker = '$xaml = @"'
+        $startIdx = $content.IndexOf($startMarker)
+        $endIdx = $content.IndexOf('"@', $startIdx)
+        $script:XamlText = $content.Substring($startIdx + $startMarker.Length, $endIdx - ($startIdx + $startMarker.Length)).Trim()
+    }
+
+    It 'Extracts valid XAML template from script' {
+        $script:XamlText.Length | Should -BeGreaterThan 100
+        $script:XamlText | Should -Match '^<Window'
+    }
+
+    It 'Does not contain invalid WPF attributes such as LetterSpacing' {
+        $script:XamlText | Should -Not -Match 'LetterSpacing'
+    }
+
+    It 'Loads XAML via XamlReader and verifies window and all 24 bound controls are non-null' {
+        $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($script:XamlText))
+        $window = [System.Windows.Markup.XamlReader]::Load($reader)
+        $window | Should -Not -BeNullOrEmpty
+
+        $expectedControls = @(
+            'TxtPillStatus', 'PillStatus', 'TxtBadgePass', 'TxtStatusMessage', 'TxtTotalStats',
+            'ProgCurrentStep', 'BannerCountdown', 'TxtCountdown', 'BtnRestartNow', 'BtnCancelCountdown',
+            'LstUpdates', 'BtnSelectAll', 'BtnDeselectAll', 'TxtLogConsole', 'BtnClearLog',
+            'BtnCopyLog', 'ChkIncludeDrivers', 'CmbMaxPasses', 'BtnStartCascade', 'BtnPauseCascade',
+            'BtnScanOnly', 'BtnInstallSelected', 'BtnManualReboot', 'BtnUnregisterAll'
+        )
+
+        $expectedControls.Count | Should -Be 24
+
+        foreach ($name in $expectedControls) {
+            $ctl = $window.FindName($name)
+            $ctl | Should -Not -BeNullOrEmpty -Because "Control '$name' must exist in XAML and be findable via FindName"
+        }
+    }
+
+    It 'Contains zero modal MessageBox dialog calls ensuring pure 1-click execution' {
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        $content | Should -Not -Match 'MessageBox'
+    }
+
+    It 'Contains zero modal Popup or Prompt dialog invocations' {
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        $content | Should -Not -Match '(?i)WScript\.Shell.*Popup'
+        $content | Should -Not -Match '(?i)\[Microsoft\.VisualBasic\.Interaction\]'
+        $content | Should -Not -Match '(?i)Read-Host'
+    }
+
+    It 'Ensures all GUI button event handlers use inline status reporting ($fnSetStatus) without blocking modal dialogs' {
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        # Check btnManualReboot
+        $content | Should -Match '\$btnManualReboot\.Add_Click\(\{\s*& \$fnSetStatus "Initiating immediate system reboot\.\.\."'
+        # Check btnUnregisterAll
+        $content | Should -Match '\$btnUnregisterAll\.Add_Click\(\{\s*\$cnt = Unregister-CascadePersistence\s*& \$fnSetStatus "Successfully disarmed and cleaned'
+        # Check btnInstallSelected with 0 updates
+        $content | Should -Match '& \$fnSetStatus "No updates selected\.'
+        # Check btnRestartNow
+        $content | Should -Match '\$btnRestartNow\.Add_Click\(\{\s*& \$fnSetStatus "Initiating immediate system reboot\.\.\."'
+        # Check btnScanOnly
+        $content | Should -Match '\$btnScanOnly\.Add_Click\(\{\s*& \$fnSetStatus "Scanning for pending updates and drivers\.\.\."'
+    }
+
+    It 'Ensures manual installation completion reports status inline with REBOOT REQ or COMPLETED status pill' {
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        $content | Should -Match 'REBOOT REQ'
+        $content | Should -Match 'Manual install complete'
+    }
+}
+
+
+
