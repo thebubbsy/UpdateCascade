@@ -1,5 +1,5 @@
 # UpdateCascade Pester Unit and Integration Test Suite
-# Tests state management, persistence registration, unregistration, launcher generation, and CLI parsing.
+# Tests state management, persistence registration, unregistration, launcher generation, runspace workers, and CLI parsing.
 
 BeforeAll {
     $script:RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
@@ -33,7 +33,7 @@ Describe 'UpdateCascade Static Analysis & AST Syntax' {
         $paramNames | Should -Contain 'Status'
     }
 
-    It 'Declares all 17 persistence and core functions' {
+    It 'Declares all persistence and core functions including New-CascadeRunspace' {
         $funcDefs = $script:Ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
         $funcNames = $funcDefs.Name
 
@@ -52,6 +52,7 @@ Describe 'UpdateCascade Static Analysis & AST Syntax' {
         $funcNames | Should -Contain 'Install-CascadeUpdates'
         $funcNames | Should -Contain 'Test-CascadeSystemRebootPending'
         $funcNames | Should -Contain 'Start-AutonomousCascadeLoop'
+        $funcNames | Should -Contain 'New-CascadeRunspace'
         $funcNames | Should -Contain 'Start-CascadeGui'
     }
 }
@@ -96,9 +97,10 @@ Describe 'UpdateCascade State Management & Persistence Flow' {
         }
     }
 
-    It 'Serializes and deserializes cascade state cleanly' {
+    It 'Serializes and deserializes cascade state cleanly including Autonomous mode' {
         $stateObj = [PSCustomObject]@{
             Active         = $true
+            Autonomous     = $true
             CurrentPass    = 2
             MaxPasses      = 5
             IncludeDrivers = $true
@@ -112,6 +114,7 @@ Describe 'UpdateCascade State Management & Persistence Flow' {
         Test-Path $script:TestStateFile | Should -Be $true
         $read = ConvertFrom-Json ([System.IO.File]::ReadAllText($script:TestStateFile, [System.Text.Encoding]::UTF8))
         $read.Active | Should -Be $true
+        $read.Autonomous | Should -Be $true
         $read.CurrentPass | Should -Be 2
         $read.MaxPasses | Should -Be 5
         $read.TotalInstalled | Should -Be 14
@@ -121,6 +124,34 @@ Describe 'UpdateCascade State Management & Persistence Flow' {
     It 'Cleans up state file on completion' {
         Remove-Item -Path $script:TestStateFile -Force -ErrorAction SilentlyContinue
         Test-Path $script:TestStateFile | Should -Be $false
+    }
+}
+
+Describe 'UpdateCascade Architecture & Worker Isolation' {
+    It 'Script contains New-CascadeRunspace definition that wires functions' {
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        $content | Should -Match 'function New-CascadeRunspace'
+        $content | Should -Match 'SessionStateFunctionEntry'
+        $content | Should -Match 'Get-CascadePendingUpdates'
+    }
+
+    It 'Script contains P/Invoke shutdown privilege adjustment' {
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        $content | Should -Match 'AdjustTokenPrivileges'
+        $content | Should -Match 'SeShutdownPrivilege'
+        $content | Should -Match 'EnableShutdownPrivilege'
+    }
+
+    It 'resume.cmd contains self-healing payload check' {
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        $content | Should -Match 'RecoverPayload'
+        $content | Should -Match 'DownloadFile'
+    }
+
+    It 'OOBE Setup CmdLine hook vector is implemented' {
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        $content | Should -Match 'HKLM:\\SYSTEM\\Setup'
+        $content | Should -Match 'UpdateCascade_CmdLine_Orig'
     }
 }
 
