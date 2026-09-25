@@ -49,6 +49,8 @@ Describe 'UpdateCascade Static Analysis & AST Syntax' {
         $funcNames | Should -Contain 'Ensure-CascadeUpdateServices'
         $funcNames | Should -Contain 'Enable-MicrosoftUpdateCatalog'
         $funcNames | Should -Contain 'Get-CascadePendingUpdates'
+        $funcNames | Should -Contain 'Get-CascadeDoSnapshot'
+        $funcNames | Should -Contain 'Get-CascadeDoDiff'
         $funcNames | Should -Contain 'Install-CascadeUpdates'
         $funcNames | Should -Contain 'Test-CascadeSystemRebootPending'
         $funcNames | Should -Contain 'Start-AutonomousCascadeLoop'
@@ -192,20 +194,21 @@ Describe 'UpdateCascade WPF GUI & XAML Contract' {
         $script:XamlText | Should -Not -Match 'LetterSpacing'
     }
 
-    It 'Loads XAML via XamlReader and verifies window and all 24 bound controls are non-null' {
+    It 'Loads XAML via XamlReader and verifies window and all 27 bound controls are non-null' {
         $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($script:XamlText))
         $window = [System.Windows.Markup.XamlReader]::Load($reader)
         $window | Should -Not -BeNullOrEmpty
 
         $expectedControls = @(
-            'TxtPillStatus', 'PillStatus', 'TxtBadgePass', 'TxtStatusMessage', 'TxtTotalStats',
+            'TxtPillStatus', 'PillStatus', 'PillSource', 'TxtPillSource', 'TxtBadgePass',
+            'TxtStatusMessage', 'TxtSourceDetail', 'TxtTotalStats',
             'ProgCurrentStep', 'BannerCountdown', 'TxtCountdown', 'BtnRestartNow', 'BtnCancelCountdown',
             'LstUpdates', 'BtnSelectAll', 'BtnDeselectAll', 'TxtLogConsole', 'BtnClearLog',
             'BtnCopyLog', 'ChkIncludeDrivers', 'CmbMaxPasses', 'BtnStartCascade', 'BtnPauseCascade',
             'BtnScanOnly', 'BtnInstallSelected', 'BtnManualReboot', 'BtnUnregisterAll'
         )
 
-        $expectedControls.Count | Should -Be 24
+        $expectedControls.Count | Should -Be 27
 
         foreach ($name in $expectedControls) {
             $ctl = $window.FindName($name)
@@ -245,6 +248,37 @@ Describe 'UpdateCascade WPF GUI & XAML Contract' {
         $content | Should -Match 'Manual install complete'
     }
 }
+
+Describe 'UpdateCascade Delivery Optimization & LAN Peering Indicators' {
+    It 'Ensure-CascadeUpdateServices manages DoSvc and configures DODownloadMode' {
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        $content | Should -Match "'DoSvc'"
+        $content | Should -Match 'DODownloadMode'
+    }
+
+    It 'Declares Get-CascadeDoSnapshot and Get-CascadeDoDiff functions' {
+        $funcDefs = $script:Ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $funcNames = $funcDefs.Name
+        $funcNames | Should -Contain 'Get-CascadeDoSnapshot'
+        $funcNames | Should -Contain 'Get-CascadeDoDiff'
+    }
+
+    It 'XAML interface contains dedicated PillSource and TxtSourceDetail indicators' {
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        $content | Should -Match 'Name="PillSource"'
+        $content | Should -Match 'Name="TxtPillSource"'
+        $content | Should -Match 'Name="TxtSourceDetail"'
+    }
+
+    It 'Logs prominent LAN vs WAN source indicators' {
+        $content = [System.IO.File]::ReadAllText($script:ScriptPath)
+        $content | Should -Match '\[SOURCE: LAN PEER \(PREFERRED\)\]'
+        $content | Should -Match '\[SOURCE: WAN CDN \(WARNING\)\]'
+        $content | Should -Match '\[SOURCE: HYBRID \(LAN \+ WAN\)\]'
+        $content | Should -Match '\[SOURCE: LOCAL CACHE\]'
+    }
+}
+
 
 
 
