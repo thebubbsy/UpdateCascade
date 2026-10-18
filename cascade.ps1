@@ -1524,6 +1524,9 @@ function Start-CascadeGui {
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Name="BadgeCopySummary" Background="#1E293B" BorderBrush="#38BDF8" BorderThickness="1" CornerRadius="12" Padding="10,4" Margin="0,0,10,0" Cursor="Hand" ToolTip="Copy Cascade Telemetry &amp; Pending Update Summary to Clipboard">
+                        <TextBlock Name="TxtCopySummary" Text="COPY SUMMARY" FontSize="10" FontWeight="Bold" Foreground="#38BDF8"/>
+                    </Border>
                     <Border Name="PillStatus" Background="#1E3A8A" CornerRadius="12" Padding="12,4" Margin="0,0,10,0">
                         <TextBlock Name="TxtPillStatus" Text="READY" FontSize="11" FontWeight="Bold" Foreground="#93C5FD"/>
                     </Border>
@@ -1578,14 +1581,20 @@ function Start-CascadeGui {
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                    <Grid Grid.Row="0" Margin="0,0,0,6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="PENDING UPDATES &amp; DRIVERS" FontSize="12" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="PENDING UPDATES &amp; DRIVERS" FontSize="12" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                            <Border Background="#0F172A" BorderBrush="#334155" BorderThickness="1" CornerRadius="6" Padding="7,2" Margin="8,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Name="TxtSelectedPayload" Text="Selected: 0 / 0 (0.0 MB)" FontSize="10" FontWeight="SemiBold" Foreground="#38BDF8"/>
+                            </Border>
+                        </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <Button Name="BtnSelectAll" Content="Select All" Background="Transparent" Foreground="#38BDF8" BorderThickness="0" Padding="4,2" FontSize="11"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
@@ -1593,7 +1602,16 @@ function Start-CascadeGui {
                         </StackPanel>
                     </Grid>
 
-                    <ListView Name="LstUpdates" Grid.Row="1" Background="#0F172A" BorderBrush="#334155" BorderThickness="1" Foreground="#F8FAFC">
+                    <Grid Grid.Row="1" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Filter:" FontSize="11" Foreground="#94A3B8" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBox Name="TxtUpdateFilter" Grid.Column="1" Background="#0F172A" Foreground="#F8FAFC" BorderBrush="#334155" BorderThickness="1" Padding="6,3" FontSize="11" ToolTip="Filter pending updates by Title, KB number, or Type (Driver / Software)"/>
+                    </Grid>
+
+                    <ListView Name="LstUpdates" Grid.Row="2" Background="#0F172A" BorderBrush="#334155" BorderThickness="1" Foreground="#F8FAFC">
                         <ListView.View>
                             <GridView>
                                 <GridViewColumn Width="40">
@@ -1697,6 +1715,8 @@ function Start-CascadeGui {
     }
 
     # Bind UI Controls
+    $badgeCopySummary   = $window.FindName('BadgeCopySummary')
+    $txtCopySummary     = $window.FindName('TxtCopySummary')
     $txtPillStatus      = $window.FindName('TxtPillStatus')
     $pillStatus         = $window.FindName('PillStatus')
     $txtBadgePass       = $window.FindName('TxtBadgePass')
@@ -1708,6 +1728,8 @@ function Start-CascadeGui {
     $btnRestartNow      = $window.FindName('BtnRestartNow')
     $btnCancelCountdown = $window.FindName('BtnCancelCountdown')
     $lstUpdates         = $window.FindName('LstUpdates')
+    $txtSelectedPayload = $window.FindName('TxtSelectedPayload')
+    $txtUpdateFilter    = $window.FindName('TxtUpdateFilter')
     $btnSelectAll       = $window.FindName('BtnSelectAll')
     $btnDeselectAll     = $window.FindName('BtnDeselectAll')
     $txtLogConsole      = $window.FindName('TxtLogConsole')
@@ -1725,6 +1747,25 @@ function Start-CascadeGui {
     # Observable Collection for Updates
     $observableUpdates = New-Object System.Collections.ObjectModel.ObservableCollection[Object]
     $lstUpdates.ItemsSource = $observableUpdates
+
+    # Helper: Recalculate Selected Payload Summary Badge
+    $fnUpdatePayloadBadge = {
+        $window.Dispatcher.Invoke([Action]{
+            $totalCnt = $observableUpdates.Count
+            $selItems = @($observableUpdates | Where-Object { $_.IsSelected })
+            $selCnt   = $selItems.Count
+            $selMB    = 0.0
+            foreach ($s in $selItems) {
+                if ($s.Raw -and $null -ne $s.Raw.SizeMB) {
+                    $selMB += [double]$s.Raw.SizeMB
+                }
+            }
+            $selMBRounded = [Math]::Round($selMB, 1)
+            if ($txtSelectedPayload) {
+                $txtSelectedPayload.Text = "Selected: $selCnt / $totalCnt ($selMBRounded MB)"
+            }
+        })
+    }
 
     # UI Log Appender Callback
     $script:GuiLogCallback = {
@@ -1788,6 +1829,7 @@ function Start-CascadeGui {
                 }
                 $observableUpdates.Add($item)
             }
+            & $fnUpdatePayloadBadge
         })
     }
 
@@ -2016,6 +2058,7 @@ function Start-CascadeGui {
     $btnSelectAll.Add_Click({
         foreach ($item in $observableUpdates) { $item.IsSelected = $true }
         $lstUpdates.Items.Refresh()
+        & $fnUpdatePayloadBadge
         & $fnSetStatus "Selected all $($observableUpdates.Count) update package(s)." "READY" "#1E3A8A" "#93C5FD"
         Write-CascadeLog "Selected all $($observableUpdates.Count) update package(s)." "INFO"
     })
@@ -2023,9 +2066,62 @@ function Start-CascadeGui {
     $btnDeselectAll.Add_Click({
         foreach ($item in $observableUpdates) { $item.IsSelected = $false }
         $lstUpdates.Items.Refresh()
+        & $fnUpdatePayloadBadge
         & $fnSetStatus "Deselected all update packages." "READY" "#1E3A8A" "#93C5FD"
         Write-CascadeLog "Deselected all update packages." "INFO"
     })
+
+    $lstUpdates.Add_PreviewMouseLeftButtonUp({
+        $window.Dispatcher.BeginInvoke([Action]{
+            & $fnUpdatePayloadBadge
+        }, [System.Windows.Threading.DispatcherPriority]::Background) | Out-Null
+    })
+
+    if ($txtUpdateFilter) {
+        $txtUpdateFilter.Add_TextChanged({
+            $q = if ($txtUpdateFilter.Text) { $txtUpdateFilter.Text.Trim() } else { '' }
+            $view = [System.Windows.Data.CollectionViewSource]::GetDefaultView($observableUpdates)
+            if ($view) {
+                if ([string]::IsNullOrWhiteSpace($q)) {
+                    $view.Filter = $null
+                } else {
+                    $view.Filter = [Predicate[Object]]{
+                        param($obj)
+                        if ($null -eq $obj) { return $false }
+                        return ($obj.Title -like "*$q*") -or ($obj.KB -like "*$q*") -or ($obj.TypeDisplay -like "*$q*") -or ($obj.Status -like "*$q*")
+                    }
+                }
+                $view.Refresh()
+            }
+        })
+    }
+
+    if ($badgeCopySummary) {
+        $badgeCopySummary.Add_MouseLeftButtonUp({
+            try {
+                $selItems = @($observableUpdates | Where-Object { $_.IsSelected })
+                $selMB = 0.0
+                foreach ($s in $selItems) {
+                    if ($s.Raw -and $null -ne $s.Raw.SizeMB) { $selMB += [double]$s.Raw.SizeMB }
+                }
+                $summaryText = "UpdateCascade Telemetry | Status: $($txtPillStatus.Text) | $($txtBadgePass.Text) | Installed: $($uiState.TotalInstalled) | Pending Selected: $($selItems.Count)/$($observableUpdates.Count) ($([Math]::Round($selMB, 1)) MB)"
+                [System.Windows.Clipboard]::SetText($summaryText)
+                $txtCopySummary.Text = "COPIED!"
+                $badgeCopySummary.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#10B981")
+                $txtCopySummary.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#6EE7B7")
+                & $fnSetStatus "Cascade telemetry summary copied to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                $tCopy = New-Object System.Windows.Threading.DispatcherTimer
+                $tCopy.Interval = [TimeSpan]::FromSeconds(1.8)
+                $tCopy.Add_Tick({
+                    $tCopy.Stop()
+                    $txtCopySummary.Text = "COPY SUMMARY"
+                    $badgeCopySummary.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#38BDF8")
+                    $txtCopySummary.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#38BDF8")
+                })
+                $tCopy.Start()
+            } catch {}
+        })
+    }
 
     $btnClearLog.Add_Click({
         $txtLogConsole.Clear()
