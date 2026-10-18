@@ -1600,7 +1600,11 @@ function Start-CascadeGui {
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnSelectSoftwareOnly" Content="Software Only" Background="Transparent" Foreground="#6EE7B7" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Select only Software updates and exclude Hardware Drivers"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnSelectDriversOnly" Content="Drivers Only" Background="Transparent" Foreground="#C084FC" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Select only Hardware Driver updates and exclude Software updates"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnDeselectAll" Content="Deselect All" Background="Transparent" Foreground="#94A3B8" BorderThickness="0" Padding="4,2" FontSize="11"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopySelectedKbs" Content="Copy KBs" Background="Transparent" Foreground="#38BDF8" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy selected KB numbers and update titles to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesCsv" Content="Export CSV" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to CSV and copy to clipboard"/>
                         </StackPanel>
@@ -2080,6 +2084,41 @@ function Start-CascadeGui {
             & $fnUpdatePayloadBadge
             & $fnSetStatus "Selected $swCount Software update(s) (excluded Drivers)." "READY" "#065F46" "#6EE7B7"
             Write-CascadeLog "Selected $swCount Software update(s) (Drivers excluded)." "INFO"
+        })
+    }
+
+    $btnSelectDriversOnly = $window.FindName('BtnSelectDriversOnly')
+    if ($btnSelectDriversOnly) {
+        $btnSelectDriversOnly.Add_Click({
+            $drvCount = 0
+            foreach ($item in $observableUpdates) {
+                $isDrv = ($item.TypeDisplay -ne 'Software')
+                $item.IsSelected = $isDrv
+                if ($isDrv) { $drvCount++ }
+            }
+            $lstUpdates.Items.Refresh()
+            & $fnUpdatePayloadBadge
+            & $fnSetStatus "Selected $drvCount Hardware Driver update(s) (excluded Software)." "READY" "#4C1D95" "#DDD6FE"
+            Write-CascadeLog "Selected $drvCount Hardware Driver update(s) (Software excluded)." "INFO"
+        })
+    }
+
+    $btnCopySelectedKbs = $window.FindName('BtnCopySelectedKbs')
+    if ($btnCopySelectedKbs) {
+        $btnCopySelectedKbs.Add_Click({
+            try {
+                $selItems = @($observableUpdates | Where-Object { $_.IsSelected })
+                if ($selItems.Count -eq 0) {
+                    & $fnSetStatus "No updates selected to copy KB numbers." "INFO" "#1E3A8A" "#93C5FD"
+                    return
+                }
+                $lines = $selItems | ForEach-Object { "$($_.KB) [$($_.TypeDisplay) - $($_.SizeDisplay)] $($_.Title)" }
+                [System.Windows.Clipboard]::SetText(($lines -join "`r`n"))
+                & $fnSetStatus "Copied $($selItems.Count) selected KB(s) & titles to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($selItems.Count) selected KB(s) & titles to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy selected KBs: $($_.Exception.Message)" "WARN"
+            }
         })
     }
 
