@@ -1598,7 +1598,11 @@ function Start-CascadeGui {
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <Button Name="BtnSelectAll" Content="Select All" Background="Transparent" Foreground="#38BDF8" BorderThickness="0" Padding="4,2" FontSize="11"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnSelectSoftwareOnly" Content="Software Only" Background="Transparent" Foreground="#6EE7B7" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Select only Software updates and exclude Hardware Drivers"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnDeselectAll" Content="Deselect All" Background="Transparent" Foreground="#94A3B8" BorderThickness="0" Padding="4,2" FontSize="11"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnExportUpdatesCsv" Content="Export CSV" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to CSV and copy to clipboard"/>
                         </StackPanel>
                     </Grid>
 
@@ -2062,6 +2066,44 @@ function Start-CascadeGui {
         & $fnSetStatus "Selected all $($observableUpdates.Count) update package(s)." "READY" "#1E3A8A" "#93C5FD"
         Write-CascadeLog "Selected all $($observableUpdates.Count) update package(s)." "INFO"
     })
+
+    $btnSelectSoftwareOnly = $window.FindName('BtnSelectSoftwareOnly')
+    if ($btnSelectSoftwareOnly) {
+        $btnSelectSoftwareOnly.Add_Click({
+            $swCount = 0
+            foreach ($item in $observableUpdates) {
+                $isSw = ($item.TypeDisplay -eq 'Software')
+                $item.IsSelected = $isSw
+                if ($isSw) { $swCount++ }
+            }
+            $lstUpdates.Items.Refresh()
+            & $fnUpdatePayloadBadge
+            & $fnSetStatus "Selected $swCount Software update(s) (excluded Drivers)." "READY" "#065F46" "#6EE7B7"
+            Write-CascadeLog "Selected $swCount Software update(s) (Drivers excluded)." "INFO"
+        })
+    }
+
+    $btnExportUpdatesCsv = $window.FindName('BtnExportUpdatesCsv')
+    if ($btnExportUpdatesCsv) {
+        $btnExportUpdatesCsv.Add_Click({
+            try {
+                $csvLines = @('Selected,KB,Type,SizeMB,Status,Title')
+                foreach ($item in $observableUpdates) {
+                    $safeTitle = ([string]$item.Title).Replace('"', '""')
+                    $csvLines += "$($item.IsSelected),$($item.KB),$($item.TypeDisplay),$($item.SizeDisplay),$($item.Status),`"$safeTitle`""
+                }
+                $csvText = $csvLines -join "`r`n"
+                [System.Windows.Clipboard]::SetText($csvText)
+                $outDir = if (Test-Path $script:PersistDir) { $script:PersistDir } else { $env:TEMP }
+                $csvPath = Join-Path $outDir ("UpdateCascade_Pending_{0}.csv" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+                $csvText | Set-Content -Path $csvPath -Encoding UTF8 -Force
+                & $fnSetStatus "Exported $($observableUpdates.Count) updates to CSV & copied to clipboard ($csvPath)" "EXPORTED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Exported pending updates CSV to $csvPath and copied to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to export updates CSV: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
 
     $btnDeselectAll.Add_Click({
         foreach ($item in $observableUpdates) { $item.IsSelected = $false }
