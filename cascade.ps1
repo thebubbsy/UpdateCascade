@@ -1606,6 +1606,8 @@ function Start-CascadeGui {
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopySelectedKbs" Content="Copy KBs" Background="Transparent" Foreground="#38BDF8" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy selected KB numbers and update titles to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyUpdatesMd" Content="Copy MD" Background="Transparent" Foreground="#A7F3D0" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy pending updates table as a Markdown table to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesCsv" Content="Export CSV" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to CSV and copy to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesJson" Content="Export JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to JSON and copy to clipboard"/>
@@ -1665,6 +1667,8 @@ function Start-CascadeGui {
                             <Button Name="BtnClearLog" Content="Clear" Background="Transparent" Foreground="#94A3B8" BorderThickness="0" Padding="4,2" FontSize="11"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLog" Content="Copy" Background="Transparent" Foreground="#38BDF8" BorderThickness="0" Padding="4,2" FontSize="11"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyLogErrors" Content="Copy Warn/Err" Background="Transparent" Foreground="#FCA5A5" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy only [WARN] and [ERROR] lines from Activity Log to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportLogFile" Content="Export .log" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Save Activity Log transcript to disk and copy path to clipboard"/>
                         </StackPanel>
@@ -2131,6 +2135,28 @@ function Start-CascadeGui {
         })
     }
 
+    $btnCopyUpdatesMd = $window.FindName('BtnCopyUpdatesMd')
+    if ($btnCopyUpdatesMd) {
+        $btnCopyUpdatesMd.Add_Click({
+            try {
+                $mdLines = @(
+                    "| Selected | KB | Type | Size | Status | Title |",
+                    "| :---: | :--- | :--- | :--- | :--- | :--- |"
+                )
+                foreach ($item in $observableUpdates) {
+                    $selMark = if ($item.IsSelected) { '[x]' } else { '[ ]' }
+                    $safeTitle = ([string]$item.Title) -replace '\|', '\|'
+                    $mdLines += "| $selMark | $($item.KB) | $($item.TypeDisplay) | $($item.SizeDisplay) | $($item.Status) | $safeTitle |"
+                }
+                [System.Windows.Clipboard]::SetText(($mdLines -join "`r`n"))
+                & $fnSetStatus "Copied $($observableUpdates.Count) pending update(s) as Markdown table to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($observableUpdates.Count) pending update(s) as Markdown table to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy updates Markdown table: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
     $btnExportUpdatesCsv = $window.FindName('BtnExportUpdatesCsv')
     if ($btnExportUpdatesCsv) {
         $btnExportUpdatesCsv.Add_Click({
@@ -2279,6 +2305,25 @@ function Start-CascadeGui {
             Write-CascadeLog "Failed to copy log to clipboard: $($_.Exception.Message)" "WARN"
         }
     })
+
+    $btnCopyLogErrors = $window.FindName('BtnCopyLogErrors')
+    if ($btnCopyLogErrors) {
+        $btnCopyLogErrors.Add_Click({
+            try {
+                $rawLog = if ($txtLogConsole.Text) { $txtLogConsole.Text } else { '' }
+                $errLines = @($rawLog -split "\r?\n" | Where-Object { $_ -match '\[(WARN|ERROR)\]' })
+                if ($errLines.Count -eq 0) {
+                    [System.Windows.Clipboard]::SetText("No [WARN] or [ERROR] entries in UpdateCascade Activity Log.")
+                    & $fnSetStatus "Zero [WARN]/[ERROR] entries found in Activity Log." "CLEAN" "#065F46" "#6EE7B7"
+                } else {
+                    [System.Windows.Clipboard]::SetText(($errLines -join "`r`n"))
+                    & $fnSetStatus "Copied $($errLines.Count) [WARN]/[ERROR] log line(s) to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                }
+            } catch {
+                Write-CascadeLog "Failed to copy warn/error lines: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
 
     $btnExportLogFile = $window.FindName('BtnExportLogFile')
     if ($btnExportLogFile) {
