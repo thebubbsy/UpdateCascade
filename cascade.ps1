@@ -1915,6 +1915,8 @@ function Start-CascadeGui {
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyUpdatesMd" Content="Copy MD" Background="Transparent" Foreground="#A7F3D0" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy pending updates table as a Markdown table to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyUpdatesTsv" Content="Copy TSV" Background="Transparent" Foreground="#67E8F9" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy pending updates table as TSV for instant paste into Excel or Google Sheets"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesCsv" Content="Export CSV" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to CSV and copy to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesJson" Content="Export JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to JSON and copy to clipboard"/>
@@ -1925,9 +1927,15 @@ function Start-CascadeGui {
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Filter:" FontSize="11" Foreground="#94A3B8" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBox Name="TxtUpdateFilter" Grid.Column="1" Background="#0F172A" Foreground="#F8FAFC" BorderBrush="#334155" BorderThickness="1" Padding="6,3" FontSize="11" ToolTip="Filter pending updates by Title, KB number, or Type (Driver / Software)"/>
+                        <TextBox Name="TxtUpdateFilter" Grid.Column="1" Background="#0F172A" Foreground="#F8FAFC" BorderThickness="1" BorderBrush="#334155" Padding="6,3" FontSize="11" ToolTip="Filter pending updates by Title, KB number, or Type (Driver / Software)"/>
+                        <Border Name="BadgeUpdateFilterCount" Grid.Column="2" Background="#0F172A" BorderBrush="#38BDF8" BorderThickness="1" CornerRadius="6" Padding="6,2" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="Collapsed">
+                            <TextBlock Name="TxtUpdateFilterCount" Text="0 shown" FontSize="10" FontWeight="SemiBold" Foreground="#38BDF8"/>
+                        </Border>
+                        <Button Name="BtnClearUpdateFilter" Grid.Column="3" Content="Clear" Background="#1E293B" Foreground="#94A3B8" BorderBrush="#475569" BorderThickness="1" Padding="8,2" Margin="6,0,0,0" FontSize="10" Visibility="Collapsed" ToolTip="Clear pending updates search filter"/>
                     </Grid>
 
                     <ListView Name="LstUpdates" Grid.Row="2" Background="#0F172A" BorderBrush="#334155" BorderThickness="1" Foreground="#F8FAFC">
@@ -2540,6 +2548,24 @@ function Start-CascadeGui {
         })
     }
 
+    $btnCopyUpdatesTsv = $window.FindName('BtnCopyUpdatesTsv')
+    if ($btnCopyUpdatesTsv) {
+        $btnCopyUpdatesTsv.Add_Click({
+            try {
+                $tsvLines = @("Selected`tKB`tType`tSize`tStatus`tTitle")
+                foreach ($item in $observableUpdates) {
+                    $cleanTitle = (([string]$item.Title) -replace "[\t\r\n]+", " ").Trim()
+                    $tsvLines += "$($item.IsSelected)`t$($item.KB)`t$($item.TypeDisplay)`t$($item.SizeDisplay)`t$($item.Status)`t$cleanTitle"
+                }
+                [System.Windows.Clipboard]::SetText(($tsvLines -join "`r`n"))
+                & $fnSetStatus "Copied $($observableUpdates.Count) pending update(s) as TSV (Excel/Sheets ready) to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($observableUpdates.Count) pending update(s) as TSV to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy updates TSV: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
     $btnExportUpdatesCsv = $window.FindName('BtnExportUpdatesCsv')
     if ($btnExportUpdatesCsv) {
         $btnExportUpdatesCsv.Add_Click({
@@ -2609,6 +2635,19 @@ function Start-CascadeGui {
         }, [System.Windows.Threading.DispatcherPriority]::Background) | Out-Null
     })
 
+    $badgeUpdateFilterCount = $window.FindName('BadgeUpdateFilterCount')
+    $txtUpdateFilterCount   = $window.FindName('TxtUpdateFilterCount')
+    $btnClearUpdateFilter   = $window.FindName('BtnClearUpdateFilter')
+
+    if ($btnClearUpdateFilter) {
+        $btnClearUpdateFilter.Add_Click({
+            if ($txtUpdateFilter) {
+                $txtUpdateFilter.Text = ""
+                $txtUpdateFilter.Focus() | Out-Null
+            }
+        })
+    }
+
     if ($txtUpdateFilter) {
         $txtUpdateFilter.Add_TextChanged({
             $q = if ($txtUpdateFilter.Text) { $txtUpdateFilter.Text.Trim() } else { '' }
@@ -2616,12 +2655,20 @@ function Start-CascadeGui {
             if ($view) {
                 if ([string]::IsNullOrWhiteSpace($q)) {
                     $view.Filter = $null
+                    if ($badgeUpdateFilterCount) { $badgeUpdateFilterCount.Visibility = [System.Windows.Visibility]::Collapsed }
+                    if ($btnClearUpdateFilter)   { $btnClearUpdateFilter.Visibility   = [System.Windows.Visibility]::Collapsed }
                 } else {
                     $view.Filter = [Predicate[Object]]{
                         param($obj)
                         if ($null -eq $obj) { return $false }
                         return ($obj.Title -like "*$q*") -or ($obj.KB -like "*$q*") -or ($obj.TypeDisplay -like "*$q*") -or ($obj.Status -like "*$q*")
                     }
+                    $view.Refresh()
+                    $visCnt = @($view).Count
+                    if ($txtUpdateFilterCount)   { $txtUpdateFilterCount.Text = "$visCnt / $($observableUpdates.Count) shown" }
+                    if ($badgeUpdateFilterCount) { $badgeUpdateFilterCount.Visibility = [System.Windows.Visibility]::Visible }
+                    if ($btnClearUpdateFilter)   { $btnClearUpdateFilter.Visibility   = [System.Windows.Visibility]::Visible }
+                    return
                 }
                 $view.Refresh()
             }
