@@ -1607,6 +1607,8 @@ function Start-CascadeGui {
                             <Button Name="BtnCopySelectedKbs" Content="Copy KBs" Background="Transparent" Foreground="#38BDF8" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy selected KB numbers and update titles to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesCsv" Content="Export CSV" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to CSV and copy to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnExportUpdatesJson" Content="Export JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to JSON and copy to clipboard"/>
                         </StackPanel>
                     </Grid>
 
@@ -1653,11 +1655,18 @@ function Start-CascadeGui {
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="ACTIVITY LOG" FontSize="12" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="ACTIVITY LOG" FontSize="12" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                            <Border Background="#0F172A" BorderBrush="#334155" BorderThickness="1" CornerRadius="6" Padding="7,2" Margin="8,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Name="TxtLogStatsBadge" Text="0 lines" FontSize="10" FontWeight="SemiBold" Foreground="#38BDF8"/>
+                            </Border>
+                        </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <Button Name="BtnClearLog" Content="Clear" Background="Transparent" Foreground="#94A3B8" BorderThickness="0" Padding="4,2" FontSize="11"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLog" Content="Copy" Background="Transparent" Foreground="#38BDF8" BorderThickness="0" Padding="4,2" FontSize="11"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnExportLogFile" Content="Export .log" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Save Activity Log transcript to disk and copy path to clipboard"/>
                         </StackPanel>
                     </Grid>
 
@@ -2144,6 +2153,39 @@ function Start-CascadeGui {
         })
     }
 
+    $btnExportUpdatesJson = $window.FindName('BtnExportUpdatesJson')
+    if ($btnExportUpdatesJson) {
+        $btnExportUpdatesJson.Add_Click({
+            try {
+                $items = @($observableUpdates | ForEach-Object {
+                    [PSCustomObject]@{
+                        Selected = [bool]$_.IsSelected
+                        KB       = $_.KB
+                        Type     = $_.TypeDisplay
+                        Size     = $_.SizeDisplay
+                        Status   = $_.Status
+                        Title    = $_.Title
+                    }
+                })
+                $payload = [PSCustomObject]@{
+                    ExportedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+                    MachineName   = $env:COMPUTERNAME
+                    Count         = $items.Count
+                    Updates       = $items
+                }
+                $jsonText = $payload | ConvertTo-Json -Depth 5
+                [System.Windows.Clipboard]::SetText($jsonText)
+                $outDir = if (Test-Path $script:PersistDir) { $script:PersistDir } else { $env:TEMP }
+                $jsonPath = Join-Path $outDir ("UpdateCascade_Pending_{0}.json" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+                $jsonText | Set-Content -Path $jsonPath -Encoding UTF8 -Force
+                & $fnSetStatus "Exported $($items.Count) updates to JSON & copied to clipboard ($jsonPath)" "EXPORTED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Exported pending updates JSON to $jsonPath and copied to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to export updates JSON: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
     $btnDeselectAll.Add_Click({
         foreach ($item in $observableUpdates) { $item.IsSelected = $false }
         $lstUpdates.Items.Refresh()
@@ -2204,6 +2246,21 @@ function Start-CascadeGui {
         })
     }
 
+    $txtLogStatsBadge = $window.FindName('TxtLogStatsBadge')
+    $fnUpdateLogStatsBadge = {
+        if (-not $txtLogStatsBadge) { return }
+        $rawLog = if ($txtLogConsole.Text) { $txtLogConsole.Text } else { '' }
+        if ([string]::IsNullOrWhiteSpace($rawLog)) {
+            $txtLogStatsBadge.Text = "0 lines"
+            return
+        }
+        $lines = @($rawLog -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $warnErr = @($lines | Where-Object { $_ -match '\[(WARN|ERROR)\]' }).Count
+        $txtLogStatsBadge.Text = if ($warnErr -gt 0) { "$($lines.Count) lines | $warnErr warn/err" } else { "$($lines.Count) lines" }
+    }
+    $txtLogConsole.Add_TextChanged({ & $fnUpdateLogStatsBadge })
+    & $fnUpdateLogStatsBadge
+
     $btnClearLog.Add_Click({
         $txtLogConsole.Clear()
         if (Test-Path $script:LogFile) {
@@ -2222,6 +2279,22 @@ function Start-CascadeGui {
             Write-CascadeLog "Failed to copy log to clipboard: $($_.Exception.Message)" "WARN"
         }
     })
+
+    $btnExportLogFile = $window.FindName('BtnExportLogFile')
+    if ($btnExportLogFile) {
+        $btnExportLogFile.Add_Click({
+            try {
+                $outDir = if (Test-Path $script:PersistDir) { $script:PersistDir } else { $env:TEMP }
+                $logOutPath = Join-Path $outDir ("UpdateCascade_Activity_{0}.log" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+                $txtLogConsole.Text | Set-Content -Path $logOutPath -Encoding UTF8 -Force
+                [System.Windows.Clipboard]::SetText($logOutPath)
+                & $fnSetStatus "Saved Activity Log transcript to $logOutPath (path copied)" "EXPORTED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Exported Activity Log transcript to $logOutPath" "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to export Activity Log file: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
 
     $btnScanOnly.Add_Click({
         & $fnSetStatus "Scanning for pending updates and drivers..." "SCANNING" "#1E3A8A" "#93C5FD"
