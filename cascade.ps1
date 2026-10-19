@@ -1909,6 +1909,8 @@ function Start-CascadeGui {
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnSelectDriversOnly" Content="Drivers Only" Background="Transparent" Foreground="#C084FC" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Select only Hardware Driver updates and exclude Software updates"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnInvertSelection" Content="Invert" Background="Transparent" Foreground="#F472B6" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Invert current update selection checkboxes"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnDeselectAll" Content="Deselect All" Background="Transparent" Foreground="#94A3B8" BorderThickness="0" Padding="4,2" FontSize="11"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopySelectedKbs" Content="Copy KBs" Background="Transparent" Foreground="#38BDF8" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy selected KB numbers and update titles to clipboard"/>
@@ -1982,6 +1984,8 @@ function Start-CascadeGui {
                             <Button Name="BtnClearLog" Content="Clear" Background="Transparent" Foreground="#94A3B8" BorderThickness="0" Padding="4,2" FontSize="11"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLog" Content="Copy" Background="Transparent" Foreground="#38BDF8" BorderThickness="0" Padding="4,2" FontSize="11"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyLogTsv" Content="Copy TSV" Background="Transparent" Foreground="#67E8F9" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as structured TSV (Timestamp, Level, Message) for Excel/Sheets"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogErrors" Content="Copy Warn/Err" Background="Transparent" Foreground="#FCA5A5" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy only [WARN] and [ERROR] lines from Activity Log to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
@@ -2735,6 +2739,48 @@ function Start-CascadeGui {
             Write-CascadeLog "Failed to copy log to clipboard: $($_.Exception.Message)" "WARN"
         }
     })
+
+    $btnInvertSelection = $window.FindName('BtnInvertSelection')
+    if ($btnInvertSelection) {
+        $btnInvertSelection.Add_Click({
+            $selCount = 0
+            foreach ($item in $observableUpdates) {
+                $item.IsSelected = (-not [bool]$item.IsSelected)
+                if ($item.IsSelected) { $selCount++ }
+            }
+            $lstUpdates.Items.Refresh()
+            & $fnUpdatePayloadBadge
+            & $fnSetStatus "Inverted selection: $selCount of $($observableUpdates.Count) update package(s) now selected." "READY" "#831843" "#F472B6"
+            Write-CascadeLog "Inverted update selection ($selCount / $($observableUpdates.Count) selected)." "INFO"
+        })
+    }
+
+    $btnCopyLogTsv = $window.FindName('BtnCopyLogTsv')
+    if ($btnCopyLogTsv) {
+        $btnCopyLogTsv.Add_Click({
+            try {
+                $rawLog = if ($txtLogConsole.Text) { $txtLogConsole.Text } else { '' }
+                $rawLines = @($rawLog -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                $tsvRows = @("Timestamp`tLevel`tMessage")
+                foreach ($ln in $rawLines) {
+                    if ($ln -match '^\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.*)$') {
+                        $ts  = ($Matches[1] -replace "[\t\r\n]+", ' ').Trim()
+                        $lvl = ($Matches[2] -replace "[\t\r\n]+", ' ').Trim()
+                        $msg = ($Matches[3] -replace "[\t\r\n]+", ' ').Trim()
+                        $tsvRows += "$ts`t$lvl`t$msg"
+                    } else {
+                        $cleanLn = ($ln -replace "[\t\r\n]+", ' ').Trim()
+                        $tsvRows += "-`tINFO`t$cleanLn"
+                    }
+                }
+                [System.Windows.Clipboard]::SetText(($tsvRows -join "`r`n"))
+                & $fnSetStatus "Copied $($rawLines.Count) Activity Log line(s) as TSV (Excel/Sheets ready) to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($rawLines.Count) Activity Log line(s) as TSV to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy Activity Log TSV: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
 
     $btnCopyLogErrors = $window.FindName('BtnCopyLogErrors')
     if ($btnCopyLogErrors) {
