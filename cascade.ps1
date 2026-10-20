@@ -1919,6 +1919,8 @@ function Start-CascadeGui {
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyUpdatesTsv" Content="Copy TSV" Background="Transparent" Foreground="#67E8F9" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy pending updates table as TSV for instant paste into Excel or Google Sheets"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyUpdatesJson" Content="Copy JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy pending updates table as structured JSON to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesCsv" Content="Export CSV" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to CSV and copy to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesJson" Content="Export JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to JSON and copy to clipboard"/>
@@ -1985,7 +1987,11 @@ function Start-CascadeGui {
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLog" Content="Copy" Background="Transparent" Foreground="#38BDF8" BorderThickness="0" Padding="4,2" FontSize="11"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyLogMd" Content="Copy MD" Background="Transparent" Foreground="#A7F3D0" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as a Markdown table to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogTsv" Content="Copy TSV" Background="Transparent" Foreground="#67E8F9" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as structured TSV (Timestamp, Level, Message) for Excel/Sheets"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyLogJson" Content="Copy JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as structured JSON to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogErrors" Content="Copy Warn/Err" Background="Transparent" Foreground="#FCA5A5" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy only [WARN] and [ERROR] lines from Activity Log to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
@@ -2778,6 +2784,104 @@ function Start-CascadeGui {
                 Write-CascadeLog "Copied $($rawLines.Count) Activity Log line(s) as TSV to clipboard." "SUCCESS"
             } catch {
                 Write-CascadeLog "Failed to copy Activity Log TSV: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
+    $btnCopyUpdatesJson = $window.FindName('BtnCopyUpdatesJson')
+    if ($btnCopyUpdatesJson) {
+        $btnCopyUpdatesJson.Add_Click({
+            try {
+                $items = @($observableUpdates | ForEach-Object {
+                    [PSCustomObject]@{
+                        Selected = [bool]$_.IsSelected
+                        KB       = $_.KB
+                        Type     = $_.TypeDisplay
+                        Size     = $_.SizeDisplay
+                        Status   = $_.Status
+                        Title    = $_.Title
+                    }
+                })
+                $payload = [PSCustomObject]@{
+                    CopiedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+                    MachineName = $env:COMPUTERNAME
+                    Count       = $items.Count
+                    Updates     = $items
+                }
+                $jsonText = $payload | ConvertTo-Json -Depth 5
+                [System.Windows.Clipboard]::SetText($jsonText)
+                & $fnSetStatus "Copied $($items.Count) pending update(s) as JSON to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($items.Count) pending update(s) as JSON to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy updates JSON: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
+    $btnCopyLogMd = $window.FindName('BtnCopyLogMd')
+    if ($btnCopyLogMd) {
+        $btnCopyLogMd.Add_Click({
+            try {
+                $rawLog = if ($txtLogConsole.Text) { $txtLogConsole.Text } else { '' }
+                $rawLines = @($rawLog -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                $mdRows = @(
+                    "### UpdateCascade Activity Log ($($rawLines.Count) entries)",
+                    "",
+                    "| Timestamp | Level | Message |",
+                    "| :--- | :---: | :--- |"
+                )
+                foreach ($ln in $rawLines) {
+                    if ($ln -match '^\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.*)$') {
+                        $ts  = ($Matches[1] -replace '\|', '\|').Trim()
+                        $lvl = ($Matches[2] -replace '\|', '\|').Trim()
+                        $msg = ($Matches[3] -replace '\|', '\|').Trim()
+                        $mdRows += "| ``$ts`` | **$lvl** | $msg |"
+                    } else {
+                        $cleanLn = ($ln -replace '\|', '\|').Trim()
+                        $mdRows += "| ``-`` | **INFO** | $cleanLn |"
+                    }
+                }
+                [System.Windows.Clipboard]::SetText(($mdRows -join "`r`n"))
+                & $fnSetStatus "Copied $($rawLines.Count) Activity Log line(s) as Markdown table to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($rawLines.Count) Activity Log line(s) as Markdown table to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy Activity Log Markdown table: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
+    $btnCopyLogJson = $window.FindName('BtnCopyLogJson')
+    if ($btnCopyLogJson) {
+        $btnCopyLogJson.Add_Click({
+            try {
+                $rawLog = if ($txtLogConsole.Text) { $txtLogConsole.Text } else { '' }
+                $rawLines = @($rawLog -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                $entries = @($rawLines | ForEach-Object {
+                    if ($_ -match '^\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.*)$') {
+                        [PSCustomObject]@{
+                            Timestamp = $Matches[1].Trim()
+                            Level     = $Matches[2].Trim()
+                            Message   = $Matches[3].Trim()
+                        }
+                    } else {
+                        [PSCustomObject]@{
+                            Timestamp = '-'
+                            Level     = 'INFO'
+                            Message   = $_.Trim()
+                        }
+                    }
+                })
+                $payload = [PSCustomObject]@{
+                    CopiedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+                    MachineName = $env:COMPUTERNAME
+                    Count       = $entries.Count
+                    Entries     = $entries
+                }
+                [System.Windows.Clipboard]::SetText(($payload | ConvertTo-Json -Depth 5))
+                & $fnSetStatus "Copied $($entries.Count) Activity Log line(s) as JSON to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($entries.Count) Activity Log line(s) as JSON to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy Activity Log JSON: $($_.Exception.Message)" "WARN"
             }
         })
     }
