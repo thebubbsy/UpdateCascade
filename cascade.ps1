@@ -1932,6 +1932,8 @@ function Start-CascadeGui {
                             <Button Name="BtnCopyUpdatesSummaryTsv" Content="Summary TSV" Background="Transparent" Foreground="#FB923C" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Pending Updates Breakdown Summary as TSV for Excel/Sheets"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyUpdatesSummaryJson" Content="Summary JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Pending Updates Breakdown Summary as structured JSON to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyUpdatesSummaryCsv" Content="Summary CSV" Background="Transparent" Foreground="#7DD3FC" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Pending Updates Breakdown Summary as CSV to clipboard"/>
                         </StackPanel>
                     </Grid>
 
@@ -2008,6 +2010,8 @@ function Start-CascadeGui {
                             <Button Name="BtnCopyLogSummaryTsv" Content="Summary TSV" Background="Transparent" Foreground="#FB923C" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log Level Breakdown Summary as TSV for Excel/Sheets"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogSummaryJson" Content="Summary JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log Level Breakdown Summary as structured JSON to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyLogSummaryCsv" Content="Summary CSV" Background="Transparent" Foreground="#7DD3FC" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log Level Breakdown Summary as CSV to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogErrors" Content="Copy Warn/Err" Background="Transparent" Foreground="#FCA5A5" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy only [WARN] and [ERROR] lines from Activity Log to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
@@ -3161,6 +3165,75 @@ function Start-CascadeGui {
                 Write-CascadeLog "Copied Activity Log Level Breakdown JSON ($($rawLines.Count) lines) to clipboard." "SUCCESS"
             } catch {
                 Write-CascadeLog "Failed to copy Activity Log Summary JSON: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
+    $btnCopyUpdatesSummaryCsv = $window.FindName('BtnCopyUpdatesSummaryCsv')
+    if ($btnCopyUpdatesSummaryCsv) {
+        $btnCopyUpdatesSummaryCsv.Add_Click({
+            try {
+                $totalCnt = $observableUpdates.Count
+                $selCnt   = 0
+                $swCnt    = 0
+                $drvCnt   = 0
+                $totalMb  = 0.0
+                $selMb    = 0.0
+                foreach ($u in $observableUpdates) {
+                    $sz = 0.0
+                    if ($u.SizeDisplay -match '([0-9.]+)\s*GB') { $sz = [double]$Matches[1] * 1024.0 }
+                    elseif ($u.SizeDisplay -match '([0-9.]+)\s*MB') { $sz = [double]$Matches[1] }
+                    elseif ($u.SizeDisplay -match '([0-9.]+)\s*KB') { $sz = [double]$Matches[1] / 1024.0 }
+                    $totalMb += $sz
+                    if ($u.IsSelected) { $selCnt++; $selMb += $sz }
+                    if ($u.TypeDisplay -match 'Driver') { $drvCnt++ } else { $swCnt++ }
+                }
+                $totalMbRound = [Math]::Round($totalMb, 1)
+                $selMbRound   = [Math]::Round($selMb, 1)
+                $csvLines = @(
+                    "Metric,Count,PayloadMB",
+                    "`"Total Pending Updates`",$totalCnt,$totalMbRound",
+                    "`"Selected for Install`",$selCnt,$selMbRound",
+                    "`"Software Updates`",$swCnt,`"-`"",
+                    "`"Hardware Drivers`",$drvCnt,`"-`""
+                )
+                [System.Windows.Clipboard]::SetText(($csvLines -join "`r`n"))
+                & $fnSetStatus "Copied Pending Updates Summary CSV ($totalCnt total, ${totalMbRound} MB) to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied Pending Updates Summary CSV ($totalCnt total, $swCnt software, $drvCnt drivers) to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy Pending Updates Summary CSV: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
+    $btnCopyLogSummaryCsv = $window.FindName('BtnCopyLogSummaryCsv')
+    if ($btnCopyLogSummaryCsv) {
+        $btnCopyLogSummaryCsv.Add_Click({
+            try {
+                $rawLog = if ($txtLogConsole.Text) { $txtLogConsole.Text } else { '' }
+                $rawLines = @($rawLog -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                $lvlCounts = [ordered]@{ INFO = 0; STEP = 0; SUCCESS = 0; WARN = 0; ERROR = 0 }
+                foreach ($ln in $rawLines) {
+                    if ($ln -match '^\[[^\]]+\]\s*\[([^\]]+)\]') {
+                        $lv = $Matches[1].Trim().ToUpperInvariant()
+                        if ($lvlCounts.Contains($lv)) { $lvlCounts[$lv] = $lvlCounts[$lv] + 1 } else { $lvlCounts[$lv] = 1 }
+                    } else {
+                        $lvlCounts['INFO'] = $lvlCounts['INFO'] + 1
+                    }
+                }
+                $csvLines = @("Level,Count,SharePercent")
+                foreach ($k in $lvlCounts.Keys) {
+                    $c = $lvlCounts[$k]
+                    $pct = if ($rawLines.Count -gt 0) { [Math]::Round(($c * 100.0) / $rawLines.Count, 1) } else { 0.0 }
+                    $safeLvl = ([string]$k).Replace('"', '""')
+                    $csvLines += "`"$safeLvl`",$c,`"$pct%`""
+                }
+                $csvLines += "`"Total Lines`",$($rawLines.Count),`"100.0%`""
+                [System.Windows.Clipboard]::SetText(($csvLines -join "`r`n"))
+                & $fnSetStatus "Copied Activity Log Level Breakdown CSV ($($rawLines.Count) lines) to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied Activity Log Level Breakdown CSV ($($rawLines.Count) lines) to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy Activity Log Summary CSV: $($_.Exception.Message)" "WARN"
             }
         })
     }
