@@ -1925,6 +1925,8 @@ function Start-CascadeGui {
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyUpdatesHtml" Content="Copy HTML" Background="Transparent" Foreground="#E879F9" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy pending updates table as styled HTML table to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyUpdatesXml" Content="Copy XML" Background="Transparent" Foreground="#2DD4BF" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy pending updates table as structured XML to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesCsv" Content="Export CSV" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to CSV and copy to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesJson" Content="Export JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to JSON and copy to clipboard"/>
@@ -2010,6 +2012,8 @@ function Start-CascadeGui {
                             <Button Name="BtnCopyLogJson" Content="Copy JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as structured JSON to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogHtml" Content="Copy HTML" Background="Transparent" Foreground="#E879F9" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as styled HTML table to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyLogXml" Content="Copy XML" Background="Transparent" Foreground="#2DD4BF" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as structured XML to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogSummary" Content="Copy Summary" Background="Transparent" Foreground="#F472B6" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log Level Breakdown Summary (Markdown) to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
@@ -2978,6 +2982,37 @@ $joinedRows
         })
     }
 
+    $btnCopyUpdatesXml = $window.FindName('BtnCopyUpdatesXml')
+    if ($btnCopyUpdatesXml) {
+        $btnCopyUpdatesXml.Add_Click({
+            try {
+                $rowsXml = @()
+                $rIdx = 0
+                foreach ($item in $observableUpdates) {
+                    $rIdx++
+                    $safeTitle = [System.Security.SecurityElement]::Escape(([string]$item.Title).Trim())
+                    $safeKb = [System.Security.SecurityElement]::Escape(([string]$item.KB).Trim())
+                    $safeSize = [System.Security.SecurityElement]::Escape(([string]$item.SizeDisplay).Trim())
+                    $safeType = [System.Security.SecurityElement]::Escape(([string]$item.TypeDisplay).Trim())
+                    $safeStatus = [System.Security.SecurityElement]::Escape(([string]$item.Status).Trim())
+                    $rowsXml += "    <Update index=""$rIdx"" kb=""$safeKb"" type=""$safeType"" size=""$safeSize"" status=""$safeStatus"">$safeTitle</Update>"
+                }
+                $joinedXml = $rowsXml -join "`r`n"
+                $xmlDoc = @"
+<?xml version="1.0" encoding="utf-8"?>
+<PendingUpdates count="$($observableUpdates.Count)" exportedAt="$([DateTime]::UtcNow.ToString('o'))">
+$joinedXml
+</PendingUpdates>
+"@
+                [System.Windows.Clipboard]::SetText($xmlDoc)
+                & $fnSetStatus "Copied $($observableUpdates.Count) pending update(s) as structured XML to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($observableUpdates.Count) pending update(s) as structured XML to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy updates XML: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
     $btnCopyLogCsv = $window.FindName('BtnCopyLogCsv')
     if ($btnCopyLogCsv) {
         $btnCopyLogCsv.Add_Click({
@@ -3053,6 +3088,42 @@ $joinedRows
                 Write-CascadeLog "Copied $($rawLines.Count) Activity Log line(s) as styled HTML table to clipboard." "SUCCESS"
             } catch {
                 Write-CascadeLog "Failed to copy Activity Log HTML: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
+    $btnCopyLogXml = $window.FindName('BtnCopyLogXml')
+    if ($btnCopyLogXml) {
+        $btnCopyLogXml.Add_Click({
+            try {
+                $rawLog = if ($txtLogConsole.Text) { $txtLogConsole.Text } else { '' }
+                $rawLines = @($rawLog -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                $rowsXml = @()
+                $rIdx = 0
+                foreach ($ln in $rawLines) {
+                    $rIdx++
+                    if ($ln -match '^\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.*)$') {
+                        $ts = [System.Security.SecurityElement]::Escape($Matches[1].Trim())
+                        $lv = [System.Security.SecurityElement]::Escape($Matches[2].Trim().ToUpperInvariant())
+                        $msg = [System.Security.SecurityElement]::Escape($Matches[3].Trim())
+                        $rowsXml += "    <LogEntry index=""$rIdx"" timestamp=""$ts"" level=""$lv"">$msg</LogEntry>"
+                    } else {
+                        $cleanMsg = [System.Security.SecurityElement]::Escape($ln.Trim())
+                        $rowsXml += "    <LogEntry index=""$rIdx"" level=""INFO"">$cleanMsg</LogEntry>"
+                    }
+                }
+                $joinedXml = $rowsXml -join "`r`n"
+                $xmlDoc = @"
+<?xml version="1.0" encoding="utf-8"?>
+<ActivityLog count="$($rawLines.Count)" exportedAt="$([DateTime]::UtcNow.ToString('o'))">
+$joinedXml
+</ActivityLog>
+"@
+                [System.Windows.Clipboard]::SetText($xmlDoc)
+                & $fnSetStatus "Copied $($rawLines.Count) Activity Log line(s) as structured XML to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($rawLines.Count) Activity Log line(s) as structured XML to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy Activity Log XML: $($_.Exception.Message)" "WARN"
             }
         })
     }
