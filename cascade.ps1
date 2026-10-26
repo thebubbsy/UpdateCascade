@@ -1923,6 +1923,8 @@ function Start-CascadeGui {
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyUpdatesJson" Content="Copy JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy pending updates table as structured JSON to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyUpdatesHtml" Content="Copy HTML" Background="Transparent" Foreground="#E879F9" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy pending updates table as styled HTML table to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesCsv" Content="Export CSV" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to CSV and copy to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesJson" Content="Export JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to JSON and copy to clipboard"/>
@@ -2006,6 +2008,8 @@ function Start-CascadeGui {
                             <Button Name="BtnCopyLogCsv" Content="Copy CSV" Background="Transparent" Foreground="#7DD3FC" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as structured CSV (Timestamp, Level, Message) to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogJson" Content="Copy JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as structured JSON to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyLogHtml" Content="Copy HTML" Background="Transparent" Foreground="#E879F9" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as styled HTML table to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogSummary" Content="Copy Summary" Background="Transparent" Foreground="#F472B6" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log Level Breakdown Summary (Markdown) to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
@@ -2928,6 +2932,52 @@ function Start-CascadeGui {
         })
     }
 
+    $btnCopyUpdatesHtml = $window.FindName('BtnCopyUpdatesHtml')
+    if ($btnCopyUpdatesHtml) {
+        $btnCopyUpdatesHtml.Add_Click({
+            try {
+                $rowsHtml = @()
+                $rIdx = 0
+                foreach ($item in $observableUpdates) {
+                    $rIdx++
+                    $bg = if ($rIdx % 2 -eq 0) { '#0d1117' } else { '#161b22' }
+                    $safeTitle = [System.Security.SecurityElement]::Escape(([string]$item.Title).Trim())
+                    $safeKb = [System.Security.SecurityElement]::Escape(([string]$item.KB).Trim())
+                    $safeType = [System.Security.SecurityElement]::Escape(([string]$item.TypeDisplay).Trim())
+                    $safeSize = [System.Security.SecurityElement]::Escape(([string]$item.SizeDisplay).Trim())
+                    $selBadge = if ($item.IsSelected) {
+                        '<span style="background-color: #065F46; color: #6EE7B7; padding: 2px 8px; border-radius: 9999px; font-weight: 600; font-size: 11px;">YES</span>'
+                    } else {
+                        '<span style="background-color: #374151; color: #9CA3AF; padding: 2px 8px; border-radius: 9999px; font-size: 11px;">NO</span>'
+                    }
+                    $rowsHtml += "<tr style=""background-color: $bg;""><td style=""padding: 6px 10px; border: 1px solid #30363d; text-align: center;"">$selBadge</td><td style=""padding: 6px 10px; border: 1px solid #30363d; font-family: monospace; color: #58a6ff;"">$safeKb</td><td style=""padding: 6px 10px; border: 1px solid #30363d; color: #c9d1d9;"">$safeTitle</td><td style=""padding: 6px 10px; border: 1px solid #30363d; color: #a5d6ff;"">$safeType</td><td style=""padding: 6px 10px; border: 1px solid #30363d; text-align: right; font-family: monospace; color: #f0f6fc;"">$safeSize</td></tr>"
+                }
+                $joinedRows = $rowsHtml -join "`r`n"
+                $htmlTable = @"
+<table style="border-collapse: collapse; width: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 13px; line-height: 1.5; color: #c9d1d9; background-color: #0d1117; border: 1px solid #30363d;">
+  <thead>
+    <tr style="background-color: #21262d; color: #f0f6fc; text-align: left;">
+      <th style="padding: 8px 10px; border: 1px solid #30363d; text-align: center; width: 60px;">Install</th>
+      <th style="padding: 8px 10px; border: 1px solid #30363d; width: 90px;">KB</th>
+      <th style="padding: 8px 10px; border: 1px solid #30363d;">Update Title</th>
+      <th style="padding: 8px 10px; border: 1px solid #30363d; width: 110px;">Type</th>
+      <th style="padding: 8px 10px; border: 1px solid #30363d; text-align: right; width: 80px;">Size</th>
+    </tr>
+  </thead>
+  <tbody>
+$joinedRows
+  </tbody>
+</table>
+"@
+                [System.Windows.Clipboard]::SetText($htmlTable)
+                & $fnSetStatus "Copied $($observableUpdates.Count) pending update(s) as styled HTML table to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($observableUpdates.Count) pending update(s) as styled HTML table to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy updates HTML: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
     $btnCopyLogCsv = $window.FindName('BtnCopyLogCsv')
     if ($btnCopyLogCsv) {
         $btnCopyLogCsv.Add_Click({
@@ -2951,6 +3001,58 @@ function Start-CascadeGui {
                 Write-CascadeLog "Copied $($rawLines.Count) Activity Log line(s) as CSV to clipboard." "SUCCESS"
             } catch {
                 Write-CascadeLog "Failed to copy Activity Log CSV: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
+    $btnCopyLogHtml = $window.FindName('BtnCopyLogHtml')
+    if ($btnCopyLogHtml) {
+        $btnCopyLogHtml.Add_Click({
+            try {
+                $rawLog = if ($txtLogConsole.Text) { $txtLogConsole.Text } else { '' }
+                $rawLines = @($rawLog -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                $rowsHtml = @()
+                $rIdx = 0
+                foreach ($ln in $rawLines) {
+                    $rIdx++
+                    $bg = if ($rIdx % 2 -eq 0) { '#0d1117' } else { '#161b22' }
+                    if ($ln -match '^\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.*)$') {
+                        $ts = [System.Security.SecurityElement]::Escape($Matches[1].Trim())
+                        $lv = $Matches[2].Trim().ToUpperInvariant()
+                        $msg = [System.Security.SecurityElement]::Escape($Matches[3].Trim())
+                        $lvlBadge = switch ($lv) {
+                            'SUCCESS' { '<span style="background-color: #065F46; color: #6EE7B7; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 10px;">SUCCESS</span>' }
+                            'ERROR'   { '<span style="background-color: #7F1D1D; color: #FCA5A5; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 10px;">ERROR</span>' }
+                            'WARN'    { '<span style="background-color: #78350F; color: #FCD34D; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 10px;">WARN</span>' }
+                            'STEP'    { '<span style="background-color: #1E3A8A; color: #93C5FD; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 10px;">STEP</span>' }
+                            default   { '<span style="background-color: #374151; color: #D1D5DB; padding: 2px 6px; border-radius: 4px; font-size: 10px;">INFO</span>' }
+                        }
+                        $rowsHtml += "<tr style=""background-color: $bg;""><td style=""padding: 4px 8px; border: 1px solid #30363d; font-family: monospace; color: #8b949e; width: 140px;"">$ts</td><td style=""padding: 4px 8px; border: 1px solid #30363d; text-align: center; width: 70px;"">$lvlBadge</td><td style=""padding: 4px 8px; border: 1px solid #30363d; color: #c9d1d9; font-family: Consolas, monospace;"">$msg</td></tr>"
+                    } else {
+                        $cleanMsg = [System.Security.SecurityElement]::Escape($ln.Trim())
+                        $rowsHtml += "<tr style=""background-color: $bg;""><td style=""padding: 4px 8px; border: 1px solid #30363d; font-family: monospace; color: #8b949e;"">-</td><td style=""padding: 4px 8px; border: 1px solid #30363d; text-align: center;""><span style=""background-color: #374151; color: #D1D5DB; padding: 2px 6px; border-radius: 4px; font-size: 10px;"">INFO</span></td><td style=""padding: 4px 8px; border: 1px solid #30363d; color: #c9d1d9; font-family: Consolas, monospace;"">$cleanMsg</td></tr>"
+                    }
+                }
+                $joinedRows = $rowsHtml -join "`r`n"
+                $htmlTable = @"
+<table style="border-collapse: collapse; width: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.4; color: #c9d1d9; background-color: #0d1117; border: 1px solid #30363d;">
+  <thead>
+    <tr style="background-color: #21262d; color: #f0f6fc; text-align: left;">
+      <th style="padding: 6px 8px; border: 1px solid #30363d; width: 140px;">Timestamp</th>
+      <th style="padding: 6px 8px; border: 1px solid #30363d; text-align: center; width: 70px;">Level</th>
+      <th style="padding: 6px 8px; border: 1px solid #30363d;">Log Message</th>
+    </tr>
+  </thead>
+  <tbody>
+$joinedRows
+  </tbody>
+</table>
+"@
+                [System.Windows.Clipboard]::SetText($htmlTable)
+                & $fnSetStatus "Copied $($rawLines.Count) Activity Log line(s) as styled HTML table to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($rawLines.Count) Activity Log line(s) as styled HTML table to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy Activity Log HTML: $($_.Exception.Message)" "WARN"
             }
         })
     }
