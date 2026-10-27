@@ -1940,6 +1940,8 @@ function Start-CascadeGui {
                             <Button Name="BtnCopyUpdatesSummaryCsv" Content="Summary CSV" Background="Transparent" Foreground="#7DD3FC" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Pending Updates Breakdown Summary as CSV to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyUpdatesSummaryHtml" Content="Summary HTML" Background="Transparent" Foreground="#E879F9" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Pending Updates Breakdown Summary as styled HTML table to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyUpdatesSummaryXml" Content="Summary XML" Background="Transparent" Foreground="#2DD4BF" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Pending Updates Breakdown Summary as structured XML to clipboard"/>
                         </StackPanel>
                     </Grid>
 
@@ -2024,6 +2026,8 @@ function Start-CascadeGui {
                             <Button Name="BtnCopyLogSummaryCsv" Content="Summary CSV" Background="Transparent" Foreground="#7DD3FC" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log Level Breakdown Summary as CSV to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogSummaryHtml" Content="Summary HTML" Background="Transparent" Foreground="#E879F9" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log Level Breakdown Summary as styled HTML table to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyLogSummaryXml" Content="Summary XML" Background="Transparent" Foreground="#2DD4BF" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log Level Breakdown Summary as structured XML to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogErrors" Content="Copy Warn/Err" Background="Transparent" Foreground="#FCA5A5" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy only [WARN] and [ERROR] lines from Activity Log to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
@@ -3430,6 +3434,43 @@ $joinedXml
         })
     }
 
+    $btnCopyUpdatesSummaryXml = $window.FindName('BtnCopyUpdatesSummaryXml')
+    if ($btnCopyUpdatesSummaryXml) {
+        $btnCopyUpdatesSummaryXml.Add_Click({
+            try {
+                $totalCnt = $observableUpdates.Count
+                $selCnt   = 0
+                $swCnt    = 0
+                $drvCnt   = 0
+                $totalMb  = 0.0
+                $selMb    = 0.0
+                foreach ($u in $observableUpdates) {
+                    $sz = 0.0
+                    if ($u.SizeDisplay -match '([0-9.]+)\s*GB') { $sz = [double]$Matches[1] * 1024.0 }
+                    elseif ($u.SizeDisplay -match '([0-9.]+)\s*MB') { $sz = [double]$Matches[1] }
+                    elseif ($u.SizeDisplay -match '([0-9.]+)\s*KB') { $sz = [double]$Matches[1] / 1024.0 }
+                    $totalMb += $sz
+                    if ($u.IsSelected) { $selCnt++; $selMb += $sz }
+                    if ($u.TypeDisplay -match 'Driver') { $drvCnt++ } else { $swCnt++ }
+                }
+                $totalMbRound = [Math]::Round($totalMb, 1)
+                $selMbRound   = [Math]::Round($selMb, 1)
+                $xmlDoc = @"
+<?xml version="1.0" encoding="utf-8"?>
+<PendingUpdatesSummary totalUpdates="$totalCnt" selectedUpdates="$selCnt" totalPayloadMB="$totalMbRound" selectedPayloadMB="$selMbRound" timestamp="$([DateTime]::UtcNow.ToString('o'))">
+  <Category name="Software" count="$swCnt" />
+  <Category name="Drivers" count="$drvCnt" />
+</PendingUpdatesSummary>
+"@
+                [System.Windows.Clipboard]::SetText($xmlDoc)
+                & $fnSetStatus "Copied Pending Updates Summary XML ($totalCnt total, ${totalMbRound} MB) to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied Pending Updates Summary XML ($totalCnt total, $swCnt software, $drvCnt drivers) to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy Pending Updates Summary XML: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
     $btnCopyLogSummaryCsv = $window.FindName('BtnCopyLogSummaryCsv')
     if ($btnCopyLogSummaryCsv) {
         $btnCopyLogSummaryCsv.Add_Click({
@@ -3510,6 +3551,45 @@ $($rowsHtml -join "`r`n")
                 Write-CascadeLog "Copied Activity Log Level Breakdown HTML ($($rawLines.Count) lines) to clipboard." "SUCCESS"
             } catch {
                 Write-CascadeLog "Failed to copy Activity Log Summary HTML: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
+    $btnCopyLogSummaryXml = $window.FindName('BtnCopyLogSummaryXml')
+    if ($btnCopyLogSummaryXml) {
+        $btnCopyLogSummaryXml.Add_Click({
+            try {
+                $rawLog = if ($txtLogConsole.Text) { $txtLogConsole.Text } else { '' }
+                $rawLines = @($rawLog -split "?
+" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                $lvlCounts = [ordered]@{ INFO = 0; STEP = 0; SUCCESS = 0; WARN = 0; ERROR = 0 }
+                foreach ($ln in $rawLines) {
+                    if ($ln -match '^\[[^\]]+\]\s*\[([^\]]+)\]') {
+                        $lv = $Matches[1].Trim().ToUpperInvariant()
+                        if ($lvlCounts.Contains($lv)) { $lvlCounts[$lv] = $lvlCounts[$lv] + 1 } else { $lvlCounts[$lv] = 1 }
+                    } else {
+                        $lvlCounts['INFO'] = $lvlCounts['INFO'] + 1
+                    }
+                }
+                $rowsXml = @()
+                foreach ($k in $lvlCounts.Keys) {
+                    $c = $lvlCounts[$k]
+                    $pct = if ($rawLines.Count -gt 0) { [Math]::Round(($c * 100.0) / $rawLines.Count, 1) } else { 0.0 }
+                    $safeK = [System.Security.SecurityElement]::Escape([string]$k)
+                    $rowsXml += "  <LogLevel name=`"$safeK`" count=`"$c`" sharePercent=`"$pct%`" />"
+                }
+                $joinedXml = $rowsXml -join "`r`n"
+                $xmlDoc = @"
+<?xml version="1.0" encoding="utf-8"?>
+<ActivityLogSummary totalLines="$($rawLines.Count)" timestamp="$([DateTime]::UtcNow.ToString('o'))">
+$joinedXml
+</ActivityLogSummary>
+"@
+                [System.Windows.Clipboard]::SetText($xmlDoc)
+                & $fnSetStatus "Copied Activity Log Level Breakdown XML ($($rawLines.Count) lines) to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied Activity Log Level Breakdown XML ($($rawLines.Count) lines) to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy Activity Log Summary XML: $($_.Exception.Message)" "WARN"
             }
         })
     }
