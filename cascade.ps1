@@ -1927,6 +1927,8 @@ function Start-CascadeGui {
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyUpdatesXml" Content="Copy XML" Background="Transparent" Foreground="#2DD4BF" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy pending updates table as structured XML to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyUpdatesYaml" Content="Copy YAML" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy pending updates table as structured YAML to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesCsv" Content="Export CSV" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to CSV and copy to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnExportUpdatesJson" Content="Export JSON" Background="Transparent" Foreground="#34D399" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Export pending updates table to JSON and copy to clipboard"/>
@@ -2016,6 +2018,8 @@ function Start-CascadeGui {
                             <Button Name="BtnCopyLogHtml" Content="Copy HTML" Background="Transparent" Foreground="#E879F9" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as styled HTML table to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogXml" Content="Copy XML" Background="Transparent" Foreground="#2DD4BF" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as structured XML to clipboard"/>
+                            <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
+                            <Button Name="BtnCopyLogYaml" Content="Copy YAML" Background="Transparent" Foreground="#FBBF24" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log entries as structured YAML to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
                             <Button Name="BtnCopyLogSummary" Content="Copy Summary" Background="Transparent" Foreground="#F472B6" BorderThickness="0" Padding="4,2" FontSize="11" ToolTip="Copy Activity Log Level Breakdown Summary (Markdown) to clipboard"/>
                             <TextBlock Text="|" Foreground="#475569" Margin="4,0" VerticalAlignment="Center"/>
@@ -3017,6 +3021,43 @@ $joinedXml
         })
     }
 
+    $btnCopyUpdatesYaml = $window.FindName('BtnCopyUpdatesYaml')
+    if ($btnCopyUpdatesYaml) {
+        $btnCopyUpdatesYaml.Add_Click({
+            try {
+                $rowsYaml = @()
+                $rIdx = 0
+                foreach ($item in $observableUpdates) {
+                    $rIdx++
+                    $rawTitle = ([string]$item.Title).Trim()
+                    $quotedTitle = if ($rawTitle -match '[:#\[\]\{\},&*?|<>=!%@`"\\]' -or $rawTitle -match '^[\s\-]') {
+                        '"' + ($rawTitle -replace '\\', '\\' -replace '"', '\"') + '"'
+                    } else {
+                        $rawTitle
+                    }
+                    $safeKb = ([string]$item.KB).Trim()
+                    $safeSize = ([string]$item.SizeDisplay).Trim()
+                    $safeType = ([string]$item.TypeDisplay).Trim()
+                    $safeStatus = ([string]$item.Status).Trim()
+                    $rowsYaml += "  - index: $rIdx`r`n    kb: $safeKb`r`n    type: $safeType`r`n    size: $safeSize`r`n    status: $safeStatus`r`n    title: $quotedTitle"
+                }
+                $joinedYaml = $rowsYaml -join "`r`n"
+                $yamlDoc = @"
+# UpdateCascade Pending Updates
+count: $($observableUpdates.Count)
+exportedAt: '$([DateTime]::UtcNow.ToString('o'))'
+updates:
+$joinedYaml
+"@
+                [System.Windows.Clipboard]::SetText($yamlDoc)
+                & $fnSetStatus "Copied $($observableUpdates.Count) pending update(s) as structured YAML to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($observableUpdates.Count) pending update(s) as structured YAML to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy updates YAML: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
     $btnCopyLogCsv = $window.FindName('BtnCopyLogCsv')
     if ($btnCopyLogCsv) {
         $btnCopyLogCsv.Add_Click({
@@ -3128,6 +3169,53 @@ $joinedXml
                 Write-CascadeLog "Copied $($rawLines.Count) Activity Log line(s) as structured XML to clipboard." "SUCCESS"
             } catch {
                 Write-CascadeLog "Failed to copy Activity Log XML: $($_.Exception.Message)" "WARN"
+            }
+        })
+    }
+
+    $btnCopyLogYaml = $window.FindName('BtnCopyLogYaml')
+    if ($btnCopyLogYaml) {
+        $btnCopyLogYaml.Add_Click({
+            try {
+                $rawLog = if ($txtLogConsole.Text) { $txtLogConsole.Text } else { '' }
+                $rawLines = @($rawLog -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                $rowsYaml = @()
+                $rIdx = 0
+                foreach ($ln in $rawLines) {
+                    $rIdx++
+                    if ($ln -match '^\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.*)$') {
+                        $ts = $Matches[1].Trim()
+                        $lv = $Matches[2].Trim().ToUpperInvariant()
+                        $rawMsg = $Matches[3].Trim()
+                        $quotedMsg = if ($rawMsg -match '[:#\[\]\{\},&*?|<>=!%@`"\\]' -or $rawMsg -match '^[\s\-]') {
+                            '"' + ($rawMsg -replace '\\', '\\' -replace '"', '\"') + '"'
+                        } else {
+                            $rawMsg
+                        }
+                        $rowsYaml += "  - index: $rIdx`r`n    timestamp: '$ts'`r`n    level: $lv`r`n    message: $quotedMsg"
+                    } else {
+                        $rawMsg = $ln.Trim()
+                        $quotedMsg = if ($rawMsg -match '[:#\[\]\{\},&*?|<>=!%@`"\\]' -or $rawMsg -match '^[\s\-]') {
+                            '"' + ($rawMsg -replace '\\', '\\' -replace '"', '\"') + '"'
+                        } else {
+                            $rawMsg
+                        }
+                        $rowsYaml += "  - index: $rIdx`r`n    level: INFO`r`n    message: $quotedMsg"
+                    }
+                }
+                $joinedYaml = $rowsYaml -join "`r`n"
+                $yamlDoc = @"
+# UpdateCascade Activity Log
+count: $($rawLines.Count)
+exportedAt: '$([DateTime]::UtcNow.ToString('o'))'
+entries:
+$joinedYaml
+"@
+                [System.Windows.Clipboard]::SetText($yamlDoc)
+                & $fnSetStatus "Copied $($rawLines.Count) Activity Log line(s) as structured YAML to clipboard." "COPIED" "#065F46" "#6EE7B7"
+                Write-CascadeLog "Copied $($rawLines.Count) Activity Log line(s) as structured YAML to clipboard." "SUCCESS"
+            } catch {
+                Write-CascadeLog "Failed to copy Activity Log YAML: $($_.Exception.Message)" "WARN"
             }
         })
     }
